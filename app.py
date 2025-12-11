@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-import pytesseract
 from PIL import Image
 import io
 
@@ -16,37 +15,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ----- Script Detection (Dummy) -----
-def detect_script(text):
+def detect_script(text: str):
     if any("𑀀" <= ch <= "𑁍" for ch in text):
         return "Brahmi"
     if any("ꯀ" <= ch <= "꯽" for ch in text):
         return "Meetei Mayek"
     return "Unknown Ancient Script"
 
-
-# ----- OCR Endpoint -----
+# ========== OLD FILE UPLOAD ENDPOINT (not used now) ==========
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)):
-    content = await file.read()
-    image = Image.open(io.BytesIO(content))
+    return JSONResponse({
+        "error": "File upload is no longer used. Send OCR text to /detect-text instead."
+    })
 
-    extracted_text = pytesseract.image_to_string(image)
+# ========== NEW ENDPOINT FOR TEXT FROM TESSERACT.JS ==========
+@app.post("/detect-text")
+async def detect_text(payload: dict):
+    text = payload.get("text", "")
 
-    script = detect_script(extracted_text)
+    script = detect_script(text)
 
     return JSONResponse({
         "script": script,
-        "raw_text": extracted_text,
+        "raw_text": text,
         "transliteration": "",
         "pronunciation": "",
         "meaning": "",
         "translation": ""
     })
 
-
+# Root endpoint
 @app.get("/")
 async def root():
     return {"message": "Ancient OCR Backend Running!"}
-
