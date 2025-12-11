@@ -1,11 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import httpx
 
 app = FastAPI(title="Ancient Script OCR API")
 
-# CORS (allow everything for now)
+# CORS (Allow Lovable & Flutter to access)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,38 +13,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----- Script Detection (Dummy) -----
+# ----- Script Detection Logic -----
 def detect_script(text: str):
+    # Brahmi Unicode Range
     if any("𑀀" <= ch <= "𑁍" for ch in text):
         return "Brahmi"
+
+    # Meetei Mayek Unicode Range
     if any("ꯀ" <= ch <= "꯽" for ch in text):
         return "Meetei Mayek"
+
     return "Unknown Ancient Script"
 
-# Optional: small transliteration placeholder for demo
+
+# ----- Placeholder Transliteration -----
 def transliterate_text(text: str):
-    # For now just return text in Latin-range form if possible.
-    # Replace with a real transliterator or DB mapping later.
+    # Simple placeholder — returns same text
+    # Later we can add actual transliteration rules
     return text
 
-# POST /detect (kept, warns)
+
+# ----- OLD ENDPOINT (No longer used) -----
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)):
-    return JSONResponse({"error": "File upload is not used in the new flow. Send OCR text to /detect-text."})
+    return JSONResponse({
+        "error": "File upload OCR removed. Use /detect-text endpoint."
+    })
 
-# NEW: accepts JSON { "text": "...", "target_lang": "en" }
+
+# ----- NEW ENDPOINT (Frontend sends OCR text) -----
 @app.post("/detect-text")
 async def detect_text(payload: dict):
     text = payload.get("text", "") or ""
     target_lang = payload.get("target_lang", "en")
-    if not text:
-        return JSONResponse({"error": "No text provided"}, status_code=400)
 
     script = detect_script(text)
     transliteration = transliterate_text(text)
+    pronunciation = transliteration  # placeholder
 
-    # Translate using LibreTranslate (no API key required on libretranslate.com; if blocked, replace with preferred translator)
-    translation = None
+    # ----- Translation using LibreTranslate -----
+    translation = ""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
@@ -58,25 +66,21 @@ async def detect_text(payload: dict):
                 headers={"accept": "application/json"}
             )
             if resp.status_code == 200:
-                j = resp.json()
-                translation = j.get("translatedText", "")
-            else:
-                translation = ""
-    except Exception as e:
+                translation = resp.json().get("translatedText", "")
+    except Exception:
         translation = ""
-
-    # pronunciation placeholder: we return transliteration for now.
-    pronunciation = transliteration
 
     return JSONResponse({
         "script": script,
         "raw_text": text,
         "transliteration": transliteration,
         "pronunciation": pronunciation,
-        "meaning": "",        # placeholder (you can extend lexicon lookups here)
+        "meaning": "",  # future feature
         "translation": translation
     })
 
+
+# Root endpoint
 @app.get("/")
 async def root():
     return {"message": "Ancient OCR Backend Running!"}
