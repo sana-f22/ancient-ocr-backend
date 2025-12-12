@@ -1,11 +1,15 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import httpx
 
-app = FastAPI(title="Ancient Script OCR API")
+from google.cloud import vision
+from google.cloud.vision_v1 import types
+import io
+import os
 
-# CORS (Allow Lovable & Flutter to access)
+app = FastAPI(title="Ancient Script OCR API - Google Vision")
+
+# Allow Flutter / Lovable to connect
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,74 +17,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----- Script Detection Logic -----
-def detect_script(text: str):
-    # Brahmi Unicode Range
+# Make sure Google credentials are available
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if not GOOGLE_CREDENTIALS:
+    print("⚠️ WARNING: GOOGLE_APPLICATION_CREDENTIALS variable missing!")
+
+
+# ----- Script Detection -----
+def detect_script(text):
     if any("𑀀" <= ch <= "𑁍" for ch in text):
         return "Brahmi"
-
-    # Meetei Mayek Unicode Range
     if any("ꯀ" <= ch <= "꯽" for ch in text):
         return "Meetei Mayek"
-
     return "Unknown Ancient Script"
 
 
-# ----- Placeholder Transliteration -----
-def transliterate_text(text: str):
-    # Simple placeholder — returns same text
-    # Later we can add actual transliteration rules
-    return text
-
-
-# ----- OLD ENDPOINT (No longer used) -----
+# ----- Google Vision OCR -----
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)):
-    return JSONResponse({
-        "error": "File upload OCR removed. Use /detect-text endpoint."
-    })
-
-
-# ----- NEW ENDPOINT (Frontend sends OCR text) -----
-@app.post("/detect-text")
-async def detect_text(payload: dict):
-    text = payload.get("text", "") or ""
-    target_lang = payload.get("target_lang", "en")
-
-    script = detect_script(text)
-    transliteration = transliterate_text(text)
-    pronunciation = transliteration  # placeholder
-
-    # ----- Translation using LibreTranslate -----
-    translation = ""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                "https://libretranslate.com/translate",
-                json={
-                    "q": text,
-                    "source": "auto",
-                    "target": target_lang,
-                    "format": "text"
-                },
-                headers={"accept": "application/json"}
-            )
-            if resp.status_code == 200:
-                translation = resp.json().get("translatedText", "")
-    except Exception:
-        translation = ""
+        content = await file.read()
 
-    return JSONResponse({
-        "script": script,
-        "raw_text": text,
-        "transliteration": transliteration,
-        "pronunciation": pronunciation,
-        "meaning": "",  # future feature
-        "translation": translation
-    })
+        client = vision.ImageAnnotatorClient()
+        image = types.Image(content=content)
+
+        response = client.text_detection(image=image)
+        annotations = response.text_annotations
+
+        if len(annotations) == 0:
+            return JSONResponse({"error": "No text detected"}, status_code=400)
+
+        extracted_text = annotations[0].description
+        script = detect_script(extracted_text)
+
+        return JSONResponse({
+            "script": script,
+            "raw_text": extracted_text,
+            "transliteration": "",
+            "pronunciation": "",
+            "meaning": "",
+            "translation": ""
+        })
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# Root endpoint
 @app.get("/")
 async def root():
-    return {"message": "Ancient OCR Backend Running!"}
+    return {"message": "Google Vision OCR Backend Running!"}
